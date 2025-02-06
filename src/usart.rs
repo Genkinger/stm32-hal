@@ -1,4 +1,7 @@
-//! This module allows for serial communication using the STM32 U[S]ART peripheral
+//! This module allows for serial communication using the STM32 U[S]ART periphera
+//!
+//!
+//! l
 //! It provides APIs to configure, read, and write from
 //! U[S]ART, with blocking, nonblocking, and DMA functionality.
 
@@ -7,7 +10,7 @@
 
 // todo: Missing some features (like additional interrupts) on the USARTv3 peripheral . (L5, G etc)
 
-use core::ops::Deref;
+use core::{ops::Deref, result};
 
 use cfg_if::cfg_if;
 
@@ -147,6 +150,8 @@ pub struct UsartConfig {
     #[cfg(not(feature = "f4"))]
     /// Optionally, disable the overrun functionality. Defaults to `false`.
     pub overrun_disabled: bool,
+
+    pub single_wire_half_duplex: bool,
 }
 
 impl Default for UsartConfig {
@@ -157,6 +162,7 @@ impl Default for UsartConfig {
             oversampling: OverSampling::O16,
             parity: Parity::Disabled,
             irda_mode: IrdaMode::None,
+            single_wire_half_duplex: false,
             #[cfg(any(feature = "g4", feature = "h7"))]
             fifo_enabled: true,
             #[cfg(not(feature = "f4"))]
@@ -271,6 +277,21 @@ where
             .regs
             .cr2
             .modify(|_, w| unsafe { w.stop().bits(result.config.stop_bits as u8) });
+
+        // 4. Enable single wire mode if selected, rx,tx pins will be internally connected
+        //TODO(Leah): if an external pull-up is used, the tx pin will need to be configured as AF in OpenDrain Mode!
+        if result.config.single_wire_half_duplex {
+            result.regs.cr2.modify(|_, w| {
+                w.linen().clear_bit();
+                w.clken().clear_bit()
+            });
+            result.regs.cr3.modify(|_, w| {
+                w.scen().clear_bit();
+                w.iren().clear_bit();
+                w.hdsel().set_bit()
+            });
+        }
+
         // 4. Enable the USART by writing the UE bit in USART_CR1 register to 1.
         result.enable();
 
@@ -388,6 +409,17 @@ where
         // 7. Write the data to send in the USART_TDR register (this clears the TXE bit). Repeat this
         // for each data to be transmitted in case of single buffer.
 
+        //NOTE(Leah): when in half-duplex mode -> disable readback (for now hardcoded), and enable transmitter
+        // the inverse happens on read
+        // defmt::error!("Meep");
+        if self.regs.cr3.read().hdsel().bit_is_set() {
+            self.regs.cr1.write(|w| w.re().clear_bit());
+            // while self.regs.isr.read().reack().bit_is_set() {}
+            self.regs.cr1.write(|w| w.te().set_bit());
+            // while !self.regs.isr.read().teack().bit_is_set() {}
+        }
+        // defmt::error!("Moop");
+
         cfg_if! {
             if #[cfg(not(feature = "f4"))] {
                 for word in data {
@@ -471,8 +503,22 @@ where
         }
     }
 
+    #[cfg(feature = "l4")]
+    pub fn flush(&mut self) {
+        if self.regs.cr1.read().te().bit_is_set() {
+            while !self.regs.isr.read().tc().bit_is_set() {}
+        }
+    }
+
     /// Receive data into a u8 buffer. See L44 RM, section 38.5.3: "Character reception procedure"
     pub fn read(&mut self, buf: &mut [u8]) -> Result<(), UartError> {
+        //NOTE(Leah): disable tx, enable rx for half-duplex
+        if self.regs.cr3.read().hdsel().bit_is_set() {
+            // self.flush();
+            self.regs.cr1.write(|w| w.te().clear_bit());
+            self.regs.cr1.write(|w| w.re().set_bit());
+        }
+
         for i in 0..buf.len() {
             let mut i_ = 0;
             cfg_if! {
