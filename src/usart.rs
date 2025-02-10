@@ -411,14 +411,12 @@ where
 
         //NOTE(Leah): when in half-duplex mode -> disable readback (for now hardcoded), and enable transmitter
         // the inverse happens on read
-        // defmt::error!("Meep");
-        if self.regs.cr3.read().hdsel().bit_is_set() {
+        if self.regs.cr3.read().hdsel().bit_is_set() && self.regs.cr1.read().te().bit_is_clear() {
+            self.disable(); // why is this neccessary????
             self.regs.cr1.write(|w| w.re().clear_bit());
-            // while self.regs.isr.read().reack().bit_is_set() {}
             self.regs.cr1.write(|w| w.te().set_bit());
-            // while !self.regs.isr.read().teack().bit_is_set() {}
+            self.enable();
         }
-        // defmt::error!("Moop");
 
         cfg_if! {
             if #[cfg(not(feature = "f4"))] {
@@ -513,10 +511,13 @@ where
     /// Receive data into a u8 buffer. See L44 RM, section 38.5.3: "Character reception procedure"
     pub fn read(&mut self, buf: &mut [u8]) -> Result<(), UartError> {
         //NOTE(Leah): disable tx, enable rx for half-duplex
-        if self.regs.cr3.read().hdsel().bit_is_set() {
-            // self.flush();
-            self.regs.cr1.write(|w| w.te().clear_bit());
+        // FIXME(Leah): Figure out the correct way of setting these bits, its weird that we need to reenable the peripheral everytime
+        if self.regs.cr3.read().hdsel().bit_is_set() && self.regs.cr1.read().te().bit_is_set() {
+            self.flush();
+            self.disable(); // why is this neccessary????
+            self.regs.cr1.write(|w| w.re().clear_bit());
             self.regs.cr1.write(|w| w.re().set_bit());
+            self.enable();
         }
 
         for i in 0..buf.len() {
