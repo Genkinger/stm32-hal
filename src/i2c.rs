@@ -431,6 +431,7 @@ where
         self.wait_for_idle()?;
         self.set_cr2_write(addr, bytes.len(), true);
         self.write_bytes(bytes)?;
+        // self.stop();
 
         Ok(())
     }
@@ -528,7 +529,9 @@ where
             self.regs.txdr.write(|w| unsafe { w.txdata().bits(*byte) });
         }
         // Wait until the write finishes.
-        busy_wait!(self.regs, tc);
+        if self.regs.cr2.read().autoend().bit_is_clear() {
+            busy_wait!(self.regs, tc);
+        }
         Ok(())
     }
 
