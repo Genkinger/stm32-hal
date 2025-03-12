@@ -862,6 +862,18 @@ impl Rtc {
         )
         .unwrap()
     }
+
+    /// Write Backup Register
+    pub fn write_backup_register(&mut self, register: u8, value: u32) {
+        self.edit_regs(false, |regs| {
+            regs.bkpr[register as usize].modify(|_, w| unsafe { w.bkp().bits(value) });
+        });
+    }
+
+    /// Read Backup Register
+    pub fn read_backup_register(&mut self, register: u8) -> u32 {
+        self.regs.bkpr[register as usize].read().bits()
+    }
 }
 
 // Two 32-bit registers (RTC_TR and RTC_DR) contain the seconds, minutes, hours (12- or 24-hour format), day (day
