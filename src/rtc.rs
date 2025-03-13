@@ -537,7 +537,7 @@ impl Rtc {
     /// this function is used to disable write protection when modifying an RTC register.
     /// It also optionally handles the additional step required to set a clock or calendar
     /// value.
-    fn edit_regs<F>(&mut self, init_mode: bool, mut closure: F)
+    pub fn edit_regs<F>(&mut self, init_mode: bool, mut closure: F)
     where
         F: FnMut(&mut RTC),
     {
